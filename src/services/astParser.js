@@ -10,16 +10,47 @@ function parseCode(codeString) {
 
 function analyzeComplexity(rootNode) {
   let maxLoopDepth = 0;
+  let isRecursive = false;
+  let hasDynamicSpace = false;
   const details = [];
   
   const cursor = rootNode.walk();
   
-  function walk(cursor, currentLoopDepth) {
+  function walk(cursor, currentLoopDepth, currentFunctionName) {
     do {
       const type = cursor.nodeType;
-      const isLoop = (type === 'for_statement' || type === 'while_statement' || type === 'do_statement');
+      const node = cursor.currentNode;
       
       let nextLoopDepth = currentLoopDepth;
+      let nextFunctionName = currentFunctionName;
+      
+      if (type === 'function_definition') {
+        const match = node.text.match(/(\w+)\s*\(/);
+        if (match) {
+          nextFunctionName = match[1];
+        }
+      }
+      
+      if (type === 'call_expression') {
+        const match = node.text.match(/^([\w:]+)\s*\(/);
+        if (match && match[1] === currentFunctionName) {
+          isRecursive = true;
+        }
+      }
+      
+      if (type === 'new_expression') {
+        if (node.text.includes('[')) {
+          hasDynamicSpace = true;
+        }
+      }
+      
+      if (type === 'declaration' || type === 'variable_declaration') {
+        if (node.text.includes('vector') || node.text.includes('[')) {
+          hasDynamicSpace = true;
+        }
+      }
+
+      const isLoop = (type === 'for_statement' || type === 'while_statement' || type === 'do_statement');
       
       if (isLoop) {
         nextLoopDepth++;
@@ -31,13 +62,13 @@ function analyzeComplexity(rootNode) {
       }
       
       if (cursor.gotoFirstChild()) {
-        walk(cursor, nextLoopDepth);
+        walk(cursor, nextLoopDepth, nextFunctionName);
         cursor.gotoParent();
       }
     } while (cursor.gotoNextSibling());
   }
   
-  walk(cursor, 0);
+  walk(cursor, 0, null);
   
   let timeComplexity = 'O(1)';
   if (maxLoopDepth === 1) {
@@ -48,7 +79,17 @@ function analyzeComplexity(rootNode) {
     timeComplexity = `O(N^${maxLoopDepth})`;
   }
   
-  return { timeComplexity, details };
+  let spaceComplexity = 'O(1)';
+  if (hasDynamicSpace) {
+    spaceComplexity = 'O(N)';
+    details.push('Dynamic space allocation detected (e.g., arrays, vectors, or new[])');
+  }
+  
+  if (isRecursive) {
+    details.push('Recursive call detected');
+  }
+  
+  return { timeComplexity, spaceComplexity, details };
 }
 
 module.exports = { parseCode, analyzeComplexity };
