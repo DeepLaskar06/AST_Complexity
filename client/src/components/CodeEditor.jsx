@@ -1,7 +1,51 @@
-import React from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
 
-const CodeEditor = ({ code, onChange, onSubmit, isLoading }) => {
+const CodeEditor = ({ code, onChange, onSubmit, isLoading, details = [] }) => {
+  const [editorInstance, setEditorInstance] = useState(null);
+  const [monacoInstance, setMonacoInstance] = useState(null);
+  
+  const decorationsCollectionRef = useRef(null);
+  const oldDecorationsRef = useRef([]);
+
+  const handleEditorDidMount = (editor, monaco) => {
+    setEditorInstance(editor);
+    setMonacoInstance(monaco);
+  };
+
+  useEffect(() => {
+    if (!editorInstance || !monacoInstance) return;
+
+    // Extract line numbers from the details array
+    const lineNumbers = [];
+    details.forEach(detail => {
+      const match = detail.match(/line (\d+)/);
+      if (match) {
+        lineNumbers.push(parseInt(match[1], 10));
+      }
+    });
+
+    // Create decorations for Monaco
+    const newDecorations = lineNumbers.map(line => ({
+      range: new monacoInstance.Range(line, 1, line, 1),
+      options: {
+        isWholeLine: true,
+        className: 'bg-rose-500/30', // Tailwind class for subtle red background
+      }
+    }));
+
+    // Apply the decorations using the modern API or fallback for older versions
+    if (editorInstance.createDecorationsCollection) {
+      if (!decorationsCollectionRef.current) {
+        decorationsCollectionRef.current = editorInstance.createDecorationsCollection(newDecorations);
+      } else {
+        decorationsCollectionRef.current.set(newDecorations);
+      }
+    } else {
+      oldDecorationsRef.current = editorInstance.deltaDecorations(oldDecorationsRef.current, newDecorations);
+    }
+  }, [details, editorInstance, monacoInstance]);
+
   return (
     <div className="flex flex-col space-y-4">
       <div className="rounded-xl overflow-hidden border border-slate-700 shadow-2xl">
@@ -11,6 +55,7 @@ const CodeEditor = ({ code, onChange, onSubmit, isLoading }) => {
           theme="vs-dark"
           value={code}
           onChange={onChange}
+          onMount={handleEditorDidMount}
           options={{
             minimap: { enabled: false },
             fontSize: 14,
