@@ -38,6 +38,38 @@ function extractLoopVariable(node) {
   return null;
 }
 
+function extractLoopBound(node, loopVar) {
+  if (!node || node.type !== 'for_statement' || !loopVar) return 'N';
+  
+  const initializer = node.childForFieldName('initializer');
+  const condition = node.childForFieldName('condition');
+  const update = node.childForFieldName('update');
+  
+  let isDescending = false;
+  if (update) {
+    const updateText = update.text;
+    if (updateText.includes('--') || updateText.includes('-=')) {
+      isDescending = true;
+    }
+  }
+  
+  let bound = 'N';
+  if (isDescending) {
+    if (initializer) {
+      const match = initializer.text.match(/=\s*([A-Za-z0-9_]+)/);
+      if (match) bound = match[1];
+    }
+  } else {
+    if (condition) {
+      const match = condition.text.match(/[<>=!]+\s*([A-Za-z0-9_]+)/);
+      if (match) bound = match[1];
+    }
+  }
+  
+  if (bound === 'N' || !bound) return 'N';
+  return bound.toUpperCase();
+}
+
 function analyzeComplexity(rootNode) {
   const loopMacros = new Set();
   const spaceMacros = new Set();
@@ -73,8 +105,10 @@ function analyzeComplexity(rootNode) {
   }
   pass1(preprocCursor);
 
-  let maxLinear = 0;
-  let maxLog = 0;
+  let maxLinearBounds = [];
+  let maxLogBounds = [];
+  let maxSqrtBounds = [];
+  let maxScore = 0;
   let isRecursive = false;
   let hasDynamicSpace = false;
   let isNLogLogN = false;
@@ -82,22 +116,21 @@ function analyzeComplexity(rootNode) {
   
   const cursor = rootNode.walk();
   
-  function walk(cursor, currentLinear, currentLog, currentFunctionName, activeLoopVars) {
+  function walk(cursor, currentLinearBounds, currentLogBounds, currentSqrtBounds, currentFunctionName, activeLoopVars) {
     do {
       const type = cursor.nodeType;
       const node = cursor.currentNode;
       
-      let nextLinear = currentLinear;
-      let nextLog = currentLog;
+      let nextLinearBounds = [...currentLinearBounds];
+      let nextLogBounds = [...currentLogBounds];
+      let nextSqrtBounds = [...currentSqrtBounds];
       let nextFunctionName = currentFunctionName;
       let nextLoopVars = activeLoopVars;
       let currentLoopVariable = activeLoopVars.length > 0 ? activeLoopVars[activeLoopVars.length - 1] : null;
       
       if (type === 'function_definition') {
         const match = node.text.match(/(\w+)\s*\(/);
-        if (match) {
-          nextFunctionName = match[1];
-        }
+        if (match) nextFunctionName = match[1];
       }
       
       let isLoop = false;
@@ -126,19 +159,20 @@ function analyzeComplexity(rootNode) {
         } else if (baseName && stlHeuristics[baseName]) {
           const h = stlHeuristics[baseName];
           if (h === 'O(N log N)') {
-            nextLinear++;
-            nextLog++;
+            nextLinearBounds.push('N');
+            nextLogBounds.push('N');
           } else if (h === 'O(log N)') {
-            nextLog++;
+            nextLogBounds.push('N');
           } else if (h === 'O(N)') {
-            nextLinear++;
+            nextLinearBounds.push('N');
           }
           
-          const currentScore = nextLinear + nextLog * 0.01;
-          const maxScore = maxLinear + maxLog * 0.01;
+          const currentScore = nextLinearBounds.length + nextSqrtBounds.length * 0.5 + nextLogBounds.length * 0.01;
           if (currentScore > maxScore) {
-            maxLinear = nextLinear;
-            maxLog = nextLog;
+            maxScore = currentScore;
+            maxLinearBounds = [...nextLinearBounds];
+            maxLogBounds = [...nextLogBounds];
+            maxSqrtBounds = [...nextSqrtBounds];
           }
           details.push(`Found STL '${baseName}' call at line ${cursor.startPosition.row + 1} (${h})`);
         }
@@ -150,9 +184,7 @@ function analyzeComplexity(rootNode) {
       }
       
       if (type === 'new_expression') {
-        if (node.text.includes('[')) {
-          hasDynamicSpace = true;
-        }
+        if (node.text.includes('[')) hasDynamicSpace = true;
       }
       
       if (type === 'declaration' || type === 'variable_declaration') {
@@ -162,9 +194,7 @@ function analyzeComplexity(rootNode) {
         } else {
           for (const sm of spaceMacros) {
             const regex = new RegExp(`\\b${sm}\\b`);
-            if (regex.test(text)) {
-              hasDynamicSpace = true;
-            }
+            if (regex.test(text)) hasDynamicSpace = true;
           }
         }
       }
@@ -209,23 +239,28 @@ function analyzeComplexity(rootNode) {
       }
       
       if (isLoop) {
+        let bound = 'N';
+        if (type === 'for_statement') {
+          bound = extractLoopBound(node, loopVar);
+        }
+        
         if (isLogLoop) {
-          nextLog++;
+          nextLogBounds.push(bound);
         } else if (isSqrtLoop) {
-          nextLinear += 0.5;
+          nextSqrtBounds.push(bound);
         } else {
-          nextLinear++;
+          nextLinearBounds.push(bound);
         }
         
-        const currentScore = nextLinear + nextLog * 0.01;
-        const maxScore = maxLinear + maxLog * 0.01;
-        
+        const currentScore = nextLinearBounds.length + nextSqrtBounds.length * 0.5 + nextLogBounds.length * 0.01;
         if (currentScore > maxScore) {
-          maxLinear = nextLinear;
-          maxLog = nextLog;
+          maxScore = currentScore;
+          maxLinearBounds = [...nextLinearBounds];
+          maxLogBounds = [...nextLogBounds];
+          maxSqrtBounds = [...nextSqrtBounds];
         }
         
-        let loopMsg = `Found ${isLogLoop ? 'O(log N)' : (isSqrtLoop ? 'O(sqrt N)' : 'O(N)')} loop at line ${cursor.startPosition.row + 1}`;
+        let loopMsg = `Found ${isLogLoop ? 'O(log ' + bound + ')' : (isSqrtLoop ? 'O(sqrt ' + bound + ')' : 'O(' + bound + ')')} loop at line ${cursor.startPosition.row + 1}`;
         if (isMacroLoop) {
           loopMsg = `Found O(N) macro loop '${macroBaseName}' at line ${cursor.startPosition.row + 1}`;
         } else if (type === 'for_statement' && loopVar) {
@@ -235,32 +270,45 @@ function analyzeComplexity(rootNode) {
       }
       
       if (cursor.gotoFirstChild()) {
-        walk(cursor, nextLinear, nextLog, nextFunctionName, nextLoopVars);
+        walk(cursor, nextLinearBounds, nextLogBounds, nextSqrtBounds, nextFunctionName, nextLoopVars);
         cursor.gotoParent();
       }
     } while (cursor.gotoNextSibling());
   }
   
-  walk(cursor, 0, 0, null, []);
+  walk(cursor, [], [], [], null, []);
   
   let timeComplexity = 'O(1)';
-  if (maxLinear === 0 && maxLog > 0) {
-    timeComplexity = maxLog === 1 ? 'O(log N)' : `O(log^${maxLog} N)`;
-  } else if (maxLinear > 0) {
-    let linPart = '';
-    if (maxLinear === 0.5) {
-      linPart = 'sqrt(N)';
-    } else if (maxLinear === 1) {
-      linPart = 'N';
-    } else if (maxLinear === 1.5) {
-      linPart = 'N sqrt(N)';
-    } else if (Number.isInteger(maxLinear)) {
-      linPart = `N^${maxLinear}`;
-    } else {
-      linPart = `N^${Math.floor(maxLinear)} sqrt(N)`;
+  
+  const linearCounts = {};
+  for (const b of maxLinearBounds) {
+    linearCounts[b] = (linearCounts[b] || 0) + 1;
+  }
+  for (const b of maxSqrtBounds) {
+    linearCounts[`sqrt(${b})`] = (linearCounts[`sqrt(${b})`] || 0) + 1;
+    if (linearCounts[`sqrt(${b})`] === 2) {
+       linearCounts[b] = (linearCounts[b] || 0) + 1;
+       delete linearCounts[`sqrt(${b})`];
     }
-    const logPart = maxLog === 0 ? '' : (maxLog === 1 ? ' log N' : ` log^${maxLog} N`);
-    timeComplexity = `O(${linPart}${logPart})`;
+  }
+  
+  const logCounts = {};
+  for (const b of maxLogBounds) {
+    logCounts[b] = (logCounts[b] || 0) + 1;
+  }
+
+  const parts = [];
+  for (const [b, count] of Object.entries(linearCounts)) {
+    if (count === 1) parts.push(b);
+    else parts.push(`${b}^${count}`);
+  }
+  for (const [b, count] of Object.entries(logCounts)) {
+    if (count === 1) parts.push(`log ${b}`);
+    else parts.push(`log^${count} ${b}`);
+  }
+
+  if (parts.length > 0) {
+    timeComplexity = `O(${parts.join(' * ')})`;
   }
   
   if (isNLogLogN) {
