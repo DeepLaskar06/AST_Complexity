@@ -1,5 +1,6 @@
 const Parser = require('tree-sitter');
 const Cpp = require('tree-sitter-cpp');
+const stlHeuristics = require('./heuristics');
 
 function parseCode(codeString) {
   const parser = new Parser();
@@ -66,6 +67,37 @@ function analyzeComplexity(rootNode) {
       }
       
       if (type === 'call_expression') {
+        const functionNode = node.childForFieldName('function');
+        let baseName = null;
+        if (functionNode) {
+          if (functionNode.type === 'scoped_identifier') {
+            const nameNode = functionNode.childForFieldName('name');
+            if (nameNode) baseName = nameNode.text;
+          } else if (functionNode.type === 'identifier') {
+            baseName = functionNode.text;
+          }
+        }
+        
+        if (baseName && stlHeuristics[baseName]) {
+          const h = stlHeuristics[baseName];
+          if (h === 'O(N log N)') {
+            nextLinear++;
+            nextLog++;
+          } else if (h === 'O(log N)') {
+            nextLog++;
+          } else if (h === 'O(N)') {
+            nextLinear++;
+          }
+          
+          const currentScore = nextLinear + nextLog * 0.01;
+          const maxScore = maxLinear + maxLog * 0.01;
+          if (currentScore > maxScore) {
+            maxLinear = nextLinear;
+            maxLog = nextLog;
+          }
+          details.push(`Found STL '${baseName}' call at line ${cursor.startPosition.row + 1} (${h})`);
+        }
+
         const match = node.text.match(/^([\w:]+)\s*\(/);
         if (match && match[1] === currentFunctionName) {
           isRecursive = true;
