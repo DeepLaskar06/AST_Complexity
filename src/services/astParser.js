@@ -70,6 +70,40 @@ function extractLoopBound(node, loopVar) {
   return bound.toUpperCase();
 }
 
+function detectGraphTraversal(node) {
+  if (!node || node.type !== 'while_statement') return false;
+  
+  const condition = node.childForFieldName('condition');
+  if (!condition || !condition.text.includes('.empty()')) return false;
+  
+  const body = node.childForFieldName('body');
+  if (!body) return false;
+  
+  let hasInnerGraphLoop = false;
+  
+  const bodyCursor = body.walk();
+  function checkBody(c) {
+    do {
+      const n = c.currentNode;
+      if (n.type === 'for_statement' || n.type === 'for_range_loop') {
+        const loopText = n.text;
+        if (loopText.includes('adj') || loopText.includes('edges') || loopText.includes('graph') || loopText.includes('neighbor') || /\[\w+\]/.test(loopText)) {
+          hasInnerGraphLoop = true;
+        }
+      }
+      
+      if (!hasInnerGraphLoop && c.gotoFirstChild()) {
+        checkBody(c);
+        c.gotoParent();
+      }
+    } while (!hasInnerGraphLoop && c.gotoNextSibling());
+  }
+  
+  checkBody(bodyCursor);
+  
+  return hasInnerGraphLoop;
+}
+
 function analyzeComplexity(rootNode) {
   const loopMacros = new Set();
   const spaceMacros = new Set();
@@ -112,6 +146,7 @@ function analyzeComplexity(rootNode) {
   let isRecursive = false;
   let hasDynamicSpace = false;
   let isNLogLogN = false;
+  let hasGraphTraversal = false;
   const details = [];
   
   const cursor = rootNode.walk();
@@ -127,6 +162,7 @@ function analyzeComplexity(rootNode) {
       let nextFunctionName = currentFunctionName;
       let nextLoopVars = activeLoopVars;
       let currentLoopVariable = activeLoopVars.length > 0 ? activeLoopVars[activeLoopVars.length - 1] : null;
+      let skipChildren = false;
       
       if (type === 'function_definition') {
         const match = node.text.match(/(\w+)\s*\(/);
@@ -235,7 +271,25 @@ function analyzeComplexity(rootNode) {
           }
         }
       } else if (type === 'while_statement' || type === 'do_statement') {
-        isLoop = true;
+        if (type === 'while_statement' && detectGraphTraversal(node)) {
+          hasGraphTraversal = true;
+          skipChildren = true;
+          
+          let bound = 'V + E';
+          nextLinearBounds.push(bound);
+          
+          const currentScore = nextLinearBounds.length + nextSqrtBounds.length * 0.5 + nextLogBounds.length * 0.01;
+          if (currentScore > maxScore) {
+            maxScore = currentScore;
+            maxLinearBounds = [...nextLinearBounds];
+            maxLogBounds = [...nextLogBounds];
+            maxSqrtBounds = [...nextSqrtBounds];
+          }
+          
+          details.push(`Detected standard Graph Traversal (BFS/DFS) at line ${cursor.startPosition.row + 1}`);
+        } else {
+          isLoop = true;
+        }
       }
       
       if (isLoop) {
@@ -269,7 +323,7 @@ function analyzeComplexity(rootNode) {
         details.push(loopMsg);
       }
       
-      if (cursor.gotoFirstChild()) {
+      if (!skipChildren && cursor.gotoFirstChild()) {
         walk(cursor, nextLinearBounds, nextLogBounds, nextSqrtBounds, nextFunctionName, nextLoopVars);
         cursor.gotoParent();
       }
@@ -299,8 +353,11 @@ function analyzeComplexity(rootNode) {
 
   const parts = [];
   for (const [b, count] of Object.entries(linearCounts)) {
-    if (count === 1) parts.push(b);
-    else parts.push(`${b}^${count}`);
+    let baseStr = b;
+    if (b.includes('+')) baseStr = `(${b})`;
+    
+    if (count === 1) parts.push(baseStr);
+    else parts.push(`${baseStr}^${count}`);
   }
   for (const [b, count] of Object.entries(logCounts)) {
     if (count === 1) parts.push(`log ${b}`);
@@ -317,7 +374,10 @@ function analyzeComplexity(rootNode) {
   }
   
   let spaceComplexity = 'O(1)';
-  if (hasDynamicSpace) {
+  if (hasGraphTraversal) {
+    spaceComplexity = 'O(V)';
+    details.push('Dynamic space allocation detected (Graph queue/visited array: O(V))');
+  } else if (hasDynamicSpace) {
     spaceComplexity = 'O(N)';
     details.push('Dynamic space allocation detected (e.g., arrays, vectors, or new[])');
   }
