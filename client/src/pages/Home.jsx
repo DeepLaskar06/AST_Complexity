@@ -8,6 +8,7 @@ const Home = () => {
   const [code, setCode] = useState('// Write your C++ code here\n\nint main() {\n  for(int i=0; i<10; i++) {\n    // do something\n  }\n  return 0;\n}');
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState(null);
+  const [highlightLines, setHighlightLines] = useState([]);
 
   const handleSubmit = async () => {
     if (!code.trim()) {
@@ -16,9 +17,23 @@ const Home = () => {
     }
     
     setIsLoading(true);
+    setHighlightLines([]);
+    
     try {
       const response = await axios.post('http://localhost:5000/api/analyze', { code });
       setResults(response.data);
+      
+      const lines = [];
+      if (response.data?.analysis?.details) {
+        response.data.analysis.details.forEach(detail => {
+          const match = detail.match(/line (\d+)/);
+          if (match) {
+            lines.push(parseInt(match[1], 10));
+          }
+        });
+      }
+      setHighlightLines(lines);
+      
       toast.success("Analysis complete!");
     } catch (error) {
       console.error(error);
@@ -44,7 +59,7 @@ const Home = () => {
           onChange={setCode} 
           onSubmit={handleSubmit} 
           isLoading={isLoading}
-          details={results?.analysis?.details}
+          highlightLines={highlightLines}
         />
       </div>
       <div>

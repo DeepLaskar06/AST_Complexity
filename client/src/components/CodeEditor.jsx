@@ -1,50 +1,29 @@
 import React, { useRef, useState, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
 
-const CodeEditor = ({ code, onChange, onSubmit, isLoading, details = [] }) => {
-  const [editorInstance, setEditorInstance] = useState(null);
-  const [monacoInstance, setMonacoInstance] = useState(null);
-  
-  const decorationsCollectionRef = useRef(null);
+const CodeEditor = ({ code, onChange, onSubmit, isLoading, highlightLines = [] }) => {
+  const editorRef = useRef(null);
+  const monacoRef = useRef(null);
   const oldDecorationsRef = useRef([]);
 
   const handleEditorDidMount = (editor, monaco) => {
-    setEditorInstance(editor);
-    setMonacoInstance(monaco);
+    editorRef.current = editor;
+    monacoRef.current = monaco;
   };
 
   useEffect(() => {
-    if (!editorInstance || !monacoInstance) return;
+    if (!editorRef.current || !monacoRef.current) return;
 
-    // Extract line numbers from the details array
-    const lineNumbers = [];
-    details.forEach(detail => {
-      const match = detail.match(/line (\d+)/);
-      if (match) {
-        lineNumbers.push(parseInt(match[1], 10));
-      }
-    });
-
-    // Create decorations for Monaco
-    const newDecorations = lineNumbers.map(line => ({
-      range: new monacoInstance.Range(line, 1, line, 1),
+    const newDecorations = highlightLines.map(line => ({
+      range: new monacoRef.current.Range(line, 1, line, 1),
       options: {
         isWholeLine: true,
-        className: 'bg-rose-500/30', // Tailwind class for subtle red background
+        className: 'slow-code-highlight'
       }
     }));
 
-    // Apply the decorations using the modern API or fallback for older versions
-    if (editorInstance.createDecorationsCollection) {
-      if (!decorationsCollectionRef.current) {
-        decorationsCollectionRef.current = editorInstance.createDecorationsCollection(newDecorations);
-      } else {
-        decorationsCollectionRef.current.set(newDecorations);
-      }
-    } else {
-      oldDecorationsRef.current = editorInstance.deltaDecorations(oldDecorationsRef.current, newDecorations);
-    }
-  }, [details, editorInstance, monacoInstance]);
+    oldDecorationsRef.current = editorRef.current.deltaDecorations(oldDecorationsRef.current, newDecorations);
+  }, [highlightLines]);
 
   return (
     <div className="flex flex-col space-y-4">

@@ -109,3 +109,9 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+
+.slow-code-highlight {
+  background-color: rgba(239, 68, 68, 0.3) !important;
+  display: block;
+  width: 100%;
+}
