@@ -84,6 +84,7 @@ function analyzeComplexity(rootNode) {
 
       let isLoop = false;
       let isLogLoop = false;
+      let isSqrtLoop = false;
 
       if (type === 'for_statement') {
         isLoop = true;
@@ -101,6 +102,16 @@ function analyzeComplexity(rootNode) {
             isLogLoop = true;
           }
         }
+        
+        const condition = node.childForFieldName('condition');
+        if (condition && nextLoopVariable && !isLogLoop) {
+          const condText = condition.text;
+          const regexSqrt = new RegExp(`\\b${nextLoopVariable}\\s*\\*\\s*\\b${nextLoopVariable}\\b`);
+          const regexSqrtCall = /\b(?:std::)?sqrt\s*\(/;
+          if (regexSqrt.test(condText) || regexSqrtCall.test(condText)) {
+            isSqrtLoop = true;
+          }
+        }
       } else if (type === 'while_statement' || type === 'do_statement') {
         isLoop = true;
       }
@@ -108,16 +119,21 @@ function analyzeComplexity(rootNode) {
       if (isLoop) {
         if (isLogLoop) {
           nextLog++;
+        } else if (isSqrtLoop) {
+          nextLinear += 0.5;
         } else {
           nextLinear++;
         }
         
-        if (nextLinear > maxLinear || (nextLinear === maxLinear && nextLog > maxLog)) {
+        const currentScore = nextLinear + nextLog * 0.01;
+        const maxScore = maxLinear + maxLog * 0.01;
+        
+        if (currentScore > maxScore) {
           maxLinear = nextLinear;
           maxLog = nextLog;
         }
         
-        let loopMsg = `Found ${isLogLoop ? 'O(log N)' : 'O(N)'} loop at line ${cursor.startPosition.row + 1}`;
+        let loopMsg = `Found ${isLogLoop ? 'O(log N)' : (isSqrtLoop ? 'O(sqrt N)' : 'O(N)')} loop at line ${cursor.startPosition.row + 1}`;
         if (type === 'for_statement' && nextLoopVariable) {
           loopMsg += ` tracking variable '${nextLoopVariable}'`;
         }
@@ -137,7 +153,18 @@ function analyzeComplexity(rootNode) {
   if (maxLinear === 0 && maxLog > 0) {
     timeComplexity = maxLog === 1 ? 'O(log N)' : `O(log^${maxLog} N)`;
   } else if (maxLinear > 0) {
-    const linPart = maxLinear === 1 ? 'N' : `N^${maxLinear}`;
+    let linPart = '';
+    if (maxLinear === 0.5) {
+      linPart = 'sqrt(N)';
+    } else if (maxLinear === 1) {
+      linPart = 'N';
+    } else if (maxLinear === 1.5) {
+      linPart = 'N sqrt(N)';
+    } else if (Number.isInteger(maxLinear)) {
+      linPart = `N^${maxLinear}`;
+    } else {
+      linPart = `N^${Math.floor(maxLinear)} sqrt(N)`;
+    }
     const logPart = maxLog === 0 ? '' : (maxLog === 1 ? ' log N' : ` log^${maxLog} N`);
     timeComplexity = `O(${linPart}${logPart})`;
   }
