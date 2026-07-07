@@ -1,5 +1,25 @@
 import React from 'react';
 
+const formatBadgeText = (text) => {
+  if (!text) return '';
+  const parts = text.split('^');
+  if (parts.length === 1) return text;
+  
+  const regex = /\^([A-Z0-9]+)/g;
+  const elements = [];
+  let lastIndex = 0;
+  let match;
+  
+  while ((match = regex.exec(text)) !== null) {
+    elements.push(text.substring(lastIndex, match.index));
+    elements.push(<sup key={match.index}>{match[1]}</sup>);
+    lastIndex = regex.lastIndex;
+  }
+  elements.push(text.substring(lastIndex));
+  
+  return <>{elements}</>;
+};
+
 const ResultsPanel = ({ results }) => {
   if (!results || !results.analysis) {
     return (
@@ -30,7 +50,7 @@ const ResultsPanel = ({ results }) => {
           <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Time Complexity</span>
           <div className="flex">
             <span className={`px-4 py-1.5 rounded-full font-bold text-sm border ${getBadgeColor(timeComplexity)} shadow-sm transition-all duration-300`}>
-              {timeComplexity}
+              {formatBadgeText(timeComplexity)}
             </span>
           </div>
         </div>
@@ -39,7 +59,7 @@ const ResultsPanel = ({ results }) => {
           <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Space Complexity</span>
           <div className="flex">
             <span className={`px-4 py-1.5 rounded-full font-bold text-sm border ${getBadgeColor(spaceComplexity)} shadow-sm transition-all duration-300`}>
-              {spaceComplexity}
+              {formatBadgeText(spaceComplexity)}
             </span>
           </div>
         </div>

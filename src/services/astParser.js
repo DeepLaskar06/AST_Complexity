@@ -70,14 +70,20 @@ function extractLoopBound(node, loopVar) {
   return bound.toUpperCase();
 }
 
-function detectGraphTraversal(node) {
-  if (!node || node.type !== 'while_statement') return false;
+function detectGraphTraversal(node, pqVariables) {
+  if (!node || node.type !== 'while_statement') return null;
   
   const condition = node.childForFieldName('condition');
-  if (!condition || !condition.text.includes('.empty()')) return false;
+  if (!condition || !condition.text.includes('.empty()')) return null;
+  
+  let isPQ = false;
+  const condText = condition.text;
+  for (const pq of pqVariables) {
+    if (condText.includes(`${pq}.empty()`)) isPQ = true;
+  }
   
   const body = node.childForFieldName('body');
-  if (!body) return false;
+  if (!body) return null;
   
   let hasInnerGraphLoop = false;
   
@@ -101,7 +107,45 @@ function detectGraphTraversal(node) {
   
   checkBody(bodyCursor);
   
-  return hasInnerGraphLoop;
+  if (hasInnerGraphLoop) {
+    return isPQ ? 'O(E log V)' : 'O(V + E)';
+  }
+  return null;
+}
+
+function formatComplexity(rawString, details) {
+  let formatted = rawString.toUpperCase().replace(/O\(/i, 'O(').replace(/LOG/g, 'log').replace(/SQRT/g, 'sqrt');
+  
+  let innerMatch = formatted.match(/O\((.*)\)/);
+  if (!innerMatch) return formatted;
+  
+  let parts = innerMatch[1].split(' * ');
+  let numParts = [];
+  let varParts = [];
+  
+  for (let p of parts) {
+    if (/^[0-9]+$/.test(p)) {
+      numParts.push(p);
+    } else {
+      varParts.push(p);
+    }
+  }
+  
+  if (numParts.length > 0 && varParts.length > 0) {
+    details.push(`Dropped constant factor ${numParts.join(' * ')}`);
+    formatted = `O(${varParts.join(' * ')})`;
+  } else if (numParts.length > 0 && varParts.length === 0) {
+    formatted = 'O(1)';
+    details.push(`Simplified constant bound ${numParts.join(' * ')} to O(1)`);
+  } else {
+    formatted = `O(${varParts.join(' * ')})`;
+  }
+  
+  while (formatted.includes('N * N')) {
+    formatted = formatted.replace('N * N', 'N^2');
+  }
+  
+  return formatted;
 }
 
 function analyzeComplexity(rootNode) {
@@ -147,7 +191,9 @@ function analyzeComplexity(rootNode) {
   let hasDynamicSpace = false;
   let isNLogLogN = false;
   let hasGraphTraversal = false;
+  let hasDijkstra = false;
   const details = [];
+  const pqVariables = new Set();
   
   const cursor = rootNode.walk();
   
@@ -175,6 +221,8 @@ function analyzeComplexity(rootNode) {
       let isMacroLoop = false;
       let loopVar = null;
       let macroBaseName = null;
+      let isTopK = false;
+      let topKBound = 'K';
 
       if (type === 'call_expression') {
         const functionNode = node.childForFieldName('function');
@@ -225,6 +273,10 @@ function analyzeComplexity(rootNode) {
       
       if (type === 'declaration' || type === 'variable_declaration') {
         const text = node.text;
+        if (text.includes('priority_queue')) {
+           const match = text.match(/priority_queue\s*<.*>\s*([A-Za-z0-9_]+)/);
+           if (match) pqVariables.add(match[1]);
+        }
         if (text.includes('vector') || text.includes('[')) {
           hasDynamicSpace = true;
         } else {
@@ -241,6 +293,18 @@ function analyzeComplexity(rootNode) {
         if (loopVar) {
           nextLoopVars = [...activeLoopVars, loopVar];
           currentLoopVariable = loopVar;
+        }
+        
+        const body = node.childForFieldName('body');
+        if (body) {
+          const bodyText = body.text;
+          for (const pq of pqVariables) {
+            if (bodyText.includes(`${pq}.push(`)) {
+              isTopK = true;
+              const sizeMatch = bodyText.match(new RegExp(`${pq}\\.size\\(\\)\\s*[><=!]+\\s*([A-Za-z0-9_]+)`));
+              if (sizeMatch) topKBound = sizeMatch[1].toUpperCase();
+            }
+          }
         }
         
         const update = node.childForFieldName('update');
@@ -271,11 +335,15 @@ function analyzeComplexity(rootNode) {
           }
         }
       } else if (type === 'while_statement' || type === 'do_statement') {
-        if (type === 'while_statement' && detectGraphTraversal(node)) {
+        let graphType = null;
+        if (type === 'while_statement') {
+           graphType = detectGraphTraversal(node, pqVariables);
+        }
+        if (graphType) {
           hasGraphTraversal = true;
           skipChildren = true;
           
-          let bound = 'V + E';
+          let bound = graphType === 'O(E log V)' ? 'E * log V' : 'V + E';
           nextLinearBounds.push(bound);
           
           const currentScore = nextLinearBounds.length + nextSqrtBounds.length * 0.5 + nextLogBounds.length * 0.01;
@@ -286,7 +354,12 @@ function analyzeComplexity(rootNode) {
             maxSqrtBounds = [...nextSqrtBounds];
           }
           
-          details.push(`Detected standard Graph Traversal (BFS/DFS) at line ${cursor.startPosition.row + 1}`);
+          if (graphType === 'O(E log V)') {
+            details.push(`Detected Dijkstra-style Graph Traversal at line ${cursor.startPosition.row + 1}`);
+            hasDijkstra = true;
+          } else {
+            details.push(`Detected standard Graph Traversal (BFS/DFS) at line ${cursor.startPosition.row + 1}`);
+          }
         } else {
           isLoop = true;
         }
@@ -304,6 +377,10 @@ function analyzeComplexity(rootNode) {
           nextSqrtBounds.push(bound);
         } else {
           nextLinearBounds.push(bound);
+          if (isTopK) {
+             nextLogBounds.push(topKBound);
+             details.push(`Detected Top-K Priority Queue push (bound by ${topKBound}) inside loop at line ${cursor.startPosition.row + 1}`);
+          }
         }
         
         const currentScore = nextLinearBounds.length + nextSqrtBounds.length * 0.5 + nextLogBounds.length * 0.01;
@@ -367,6 +444,8 @@ function analyzeComplexity(rootNode) {
   if (parts.length > 0) {
     timeComplexity = `O(${parts.join(' * ')})`;
   }
+  
+  timeComplexity = formatComplexity(timeComplexity, details);
   
   if (isNLogLogN) {
     timeComplexity = 'O(N log log N)';
