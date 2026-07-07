@@ -42,11 +42,12 @@ function analyzeComplexity(rootNode) {
   let maxLog = 0;
   let isRecursive = false;
   let hasDynamicSpace = false;
+  let isNLogLogN = false;
   const details = [];
   
   const cursor = rootNode.walk();
   
-  function walk(cursor, currentLinear, currentLog, currentFunctionName, currentLoopVariable) {
+  function walk(cursor, currentLinear, currentLog, currentFunctionName, activeLoopVars) {
     do {
       const type = cursor.nodeType;
       const node = cursor.currentNode;
@@ -54,7 +55,8 @@ function analyzeComplexity(rootNode) {
       let nextLinear = currentLinear;
       let nextLog = currentLog;
       let nextFunctionName = currentFunctionName;
-      let nextLoopVariable = currentLoopVariable;
+      let nextLoopVars = activeLoopVars;
+      let currentLoopVariable = activeLoopVars.length > 0 ? activeLoopVars[activeLoopVars.length - 1] : null;
       
       if (type === 'function_definition') {
         const match = node.text.match(/(\w+)\s*\(/);
@@ -85,28 +87,38 @@ function analyzeComplexity(rootNode) {
       let isLoop = false;
       let isLogLoop = false;
       let isSqrtLoop = false;
+      let loopVar = null;
 
       if (type === 'for_statement') {
         isLoop = true;
-        const loopVar = extractLoopVariable(node);
+        loopVar = extractLoopVariable(node);
         if (loopVar) {
-          nextLoopVariable = loopVar;
+          nextLoopVars = [...activeLoopVars, loopVar];
+          currentLoopVariable = loopVar;
         }
         
         const update = node.childForFieldName('update');
-        if (update && nextLoopVariable) {
+        if (update && loopVar) {
           const updateText = update.text;
-          const regex1 = new RegExp(`\\b${nextLoopVariable}\\s*(\\*=|/=|<<=|>>=)`);
-          const regex2 = new RegExp(`\\b${nextLoopVariable}\\s*=\\s*\\b${nextLoopVariable}\\s*(\\*|/|<<|>>)`);
+          const regex1 = new RegExp(`\\b${loopVar}\\s*(\\*=|/=|<<=|>>=)`);
+          const regex2 = new RegExp(`\\b${loopVar}\\s*=\\s*\\b${loopVar}\\s*(\\*|/|<<|>>)`);
           if (regex1.test(updateText) || regex2.test(updateText)) {
             isLogLoop = true;
+          }
+          
+          for (const outerVar of activeLoopVars) {
+            const regexSieve1 = new RegExp(`\\b${loopVar}\\s*\\+=\\s*\\b${outerVar}\\b`);
+            const regexSieve2 = new RegExp(`\\b${loopVar}\\s*=\\s*\\b${loopVar}\\s*\\+\\s*\\b${outerVar}\\b`);
+            if (regexSieve1.test(updateText) || regexSieve2.test(updateText)) {
+              isNLogLogN = true;
+            }
           }
         }
         
         const condition = node.childForFieldName('condition');
-        if (condition && nextLoopVariable && !isLogLoop) {
+        if (condition && loopVar && !isLogLoop) {
           const condText = condition.text;
-          const regexSqrt = new RegExp(`\\b${nextLoopVariable}\\s*\\*\\s*\\b${nextLoopVariable}\\b`);
+          const regexSqrt = new RegExp(`\\b${loopVar}\\s*\\*\\s*\\b${loopVar}\\b`);
           const regexSqrtCall = /\b(?:std::)?sqrt\s*\(/;
           if (regexSqrt.test(condText) || regexSqrtCall.test(condText)) {
             isSqrtLoop = true;
@@ -134,20 +146,20 @@ function analyzeComplexity(rootNode) {
         }
         
         let loopMsg = `Found ${isLogLoop ? 'O(log N)' : (isSqrtLoop ? 'O(sqrt N)' : 'O(N)')} loop at line ${cursor.startPosition.row + 1}`;
-        if (type === 'for_statement' && nextLoopVariable) {
-          loopMsg += ` tracking variable '${nextLoopVariable}'`;
+        if (type === 'for_statement' && loopVar) {
+          loopMsg += ` tracking variable '${loopVar}'`;
         }
         details.push(loopMsg);
       }
       
       if (cursor.gotoFirstChild()) {
-        walk(cursor, nextLinear, nextLog, nextFunctionName, nextLoopVariable);
+        walk(cursor, nextLinear, nextLog, nextFunctionName, nextLoopVars);
         cursor.gotoParent();
       }
     } while (cursor.gotoNextSibling());
   }
   
-  walk(cursor, 0, 0, null, null);
+  walk(cursor, 0, 0, null, []);
   
   let timeComplexity = 'O(1)';
   if (maxLinear === 0 && maxLog > 0) {
@@ -167,6 +179,11 @@ function analyzeComplexity(rootNode) {
     }
     const logPart = maxLog === 0 ? '' : (maxLog === 1 ? ' log N' : ` log^${maxLog} N`);
     timeComplexity = `O(${linPart}${logPart})`;
+  }
+  
+  if (isNLogLogN) {
+    timeComplexity = 'O(N log log N)';
+    details.push('Detected Sieve-like nested loop pattern (e.g. j += i): O(N log log N)');
   }
   
   let spaceComplexity = 'O(1)';
