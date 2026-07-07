@@ -22,75 +22,97 @@ const History = () => {
     fetchHistory();
   }, []);
 
+  const formatBadgeText = (text) => {
+    if (!text) return '';
+    const parts = text.split('^');
+    if (parts.length === 1) return text;
+    
+    const regex = /\^([A-Z0-9]+)/g;
+    const elements = [];
+    let lastIndex = 0;
+    let match;
+    
+    while ((match = regex.exec(text)) !== null) {
+      elements.push(text.substring(lastIndex, match.index));
+      elements.push(<sup key={match.index}>{match[1]}</sup>);
+      lastIndex = regex.lastIndex;
+    }
+    elements.push(text.substring(lastIndex));
+    
+    return <>{elements}</>;
+  };
+
   const getBadgeColor = (complexity) => {
-    if (!complexity) return 'bg-gray-100 text-gray-700';
-    if (complexity.includes('O(1)')) return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-    if (complexity.includes('O(N)')) return 'bg-yellow-100 text-yellow-700 border-yellow-200';
-    if (complexity.includes('O(N^2)')) return 'bg-orange-100 text-orange-700 border-orange-200';
-    if (complexity.includes('N^')) return 'bg-rose-100 text-rose-700 border-rose-200';
-    return 'bg-slate-100 text-slate-700 border-slate-200';
+    if (!complexity) return 'bg-gray-700 text-gray-300 border-gray-600';
+    if (complexity === 'O(1)' || (complexity.includes('log N') && !complexity.includes('*'))) {
+       return 'bg-green-500/20 text-green-400 border-green-500/30';
+    }
+    if (complexity === 'O(N)' || complexity.includes('O(V + E)')) {
+       return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+    }
+    return 'bg-red-500/20 text-red-400 border-red-500/30';
   };
 
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-400"></div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-red-50 text-red-600 p-4 rounded-xl shadow-sm border border-red-100">
+      <div className="bg-red-500/20 text-red-400 p-4 rounded-xl shadow-sm border border-red-500/30">
         {error}
       </div>
     );
   }
 
   return (
-    <div className="bg-white shadow-xl shadow-slate-200/50 rounded-2xl border border-slate-100 overflow-hidden">
-      <div className="px-6 py-5 border-b border-slate-100">
-        <h2 className="text-xl font-bold text-slate-800">Analysis History</h2>
-        <p className="text-sm text-slate-500 mt-1">Review your most recent complexity evaluations.</p>
+    <div className="bg-gray-900 shadow-xl shadow-black/50 rounded-2xl border border-gray-700 overflow-hidden">
+      <div className="px-6 py-5 border-b border-gray-700">
+        <h2 className="text-xl font-bold text-gray-100">Analysis History</h2>
+        <p className="text-sm text-gray-400 mt-1">Review your most recent complexity evaluations.</p>
       </div>
       
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-100">
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Date</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Code Snippet</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Time Complexity</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Space Complexity</th>
+            <tr className="bg-gray-800 border-b border-gray-700">
+              <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Date</th>
+              <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Code Snippet</th>
+              <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Time Complexity</th>
+              <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Space Complexity</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-gray-800">
             {history.length > 0 ? (
               history.map((record) => (
-                <tr key={record._id} className="hover:bg-slate-50/50 transition-colors duration-150">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 font-medium">
+                <tr key={record._id} className="odd:bg-gray-900 even:bg-gray-800/50 hover:bg-gray-700 transition-colors duration-200">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300 font-medium">
                     {new Date(record.createdAt).toLocaleString()}
                   </td>
-                  <td className="px-6 py-4 text-sm text-slate-600 max-w-md">
-                    <code className="bg-slate-100 text-slate-800 px-2 py-1.5 rounded font-mono text-xs block truncate">
+                  <td className="px-6 py-4 text-sm text-gray-300 max-w-[12rem] sm:max-w-xs md:max-w-sm lg:max-w-md">
+                    <code className="bg-gray-800 text-gray-300 font-mono text-sm px-2 py-1 rounded block truncate border border-gray-700/50">
                       {record.codeSnippet.replace(/\s+/g, ' ')}
                     </code>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getBadgeColor(record.timeComplexity)}`}>
-                      {record.timeComplexity}
+                    <span className={`px-4 py-1.5 rounded-full text-xs font-bold border shadow-sm ${getBadgeColor(record.timeComplexity)}`}>
+                      {formatBadgeText(record.timeComplexity)}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getBadgeColor(record.spaceComplexity)}`}>
-                      {record.spaceComplexity}
+                    <span className={`px-4 py-1.5 rounded-full text-xs font-bold border shadow-sm ${getBadgeColor(record.spaceComplexity)}`}>
+                      {formatBadgeText(record.spaceComplexity)}
                     </span>
                   </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan="4" className="px-6 py-12 text-center text-slate-500 text-sm">
+                <td colSpan="4" className="px-6 py-12 text-center text-gray-500 text-sm">
                   No analysis history found.
                 </td>
               </tr>

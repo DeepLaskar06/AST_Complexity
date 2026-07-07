@@ -26,8 +26,8 @@ const CodeEditor = ({ code, onChange, onSubmit, isLoading, highlightLines = [] }
   }, [highlightLines]);
 
   return (
-    <div className="flex flex-col space-y-4">
-      <div className="rounded-xl overflow-hidden border border-slate-700 shadow-2xl">
+    <div className="flex flex-col space-y-4 bg-gray-800 p-4 rounded-xl border border-gray-700 shadow-lg">
+      <div className="rounded-xl overflow-hidden border border-gray-700">
         <Editor
           height="60vh"
           language="cpp"
@@ -49,7 +49,7 @@ const CodeEditor = ({ code, onChange, onSubmit, isLoading, highlightLines = [] }
         <button
           onClick={onSubmit}
           disabled={isLoading}
-          className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+          className="px-6 py-2.5 bg-gradient-to-r from-blue-500 to-blue-700 hover:scale-105 transition-transform duration-200 text-white font-semibold rounded-lg shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
         >
           {isLoading ? (
             <>
