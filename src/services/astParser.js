@@ -8,6 +8,35 @@ function parseCode(codeString) {
   return tree.rootNode;
 }
 
+function findFirstIdentifier(node) {
+  if (!node) return null;
+  if (node.type === 'identifier') return node.text;
+  for (let i = 0; i < node.childCount; i++) {
+    const child = node.child(i);
+    const id = findFirstIdentifier(child);
+    if (id) return id;
+  }
+  return null;
+}
+
+function extractLoopVariable(node) {
+  if (!node || node.type !== 'for_statement') return null;
+  
+  const initializer = node.childForFieldName('initializer');
+  if (initializer) {
+    const id = findFirstIdentifier(initializer);
+    if (id) return id;
+  }
+  
+  const condition = node.childForFieldName('condition');
+  if (condition) {
+    const id = findFirstIdentifier(condition);
+    if (id) return id;
+  }
+  
+  return null;
+}
+
 function analyzeComplexity(rootNode) {
   let maxLoopDepth = 0;
   let isRecursive = false;
@@ -16,13 +45,14 @@ function analyzeComplexity(rootNode) {
   
   const cursor = rootNode.walk();
   
-  function walk(cursor, currentLoopDepth, currentFunctionName) {
+  function walk(cursor, currentLoopDepth, currentFunctionName, currentLoopVariable) {
     do {
       const type = cursor.nodeType;
       const node = cursor.currentNode;
       
       let nextLoopDepth = currentLoopDepth;
       let nextFunctionName = currentFunctionName;
+      let nextLoopVariable = currentLoopVariable;
       
       if (type === 'function_definition') {
         const match = node.text.match(/(\w+)\s*\(/);
@@ -50,6 +80,13 @@ function analyzeComplexity(rootNode) {
         }
       }
 
+      if (type === 'for_statement') {
+        const loopVar = extractLoopVariable(node);
+        if (loopVar) {
+          nextLoopVariable = loopVar;
+        }
+      }
+
       const isLoop = (type === 'for_statement' || type === 'while_statement' || type === 'do_statement');
       
       if (isLoop) {
@@ -58,17 +95,21 @@ function analyzeComplexity(rootNode) {
           maxLoopDepth = nextLoopDepth;
         }
         
-        details.push(`Found loop at line ${cursor.startPosition.row + 1} (depth: ${nextLoopDepth})`);
+        let loopMsg = `Found loop at line ${cursor.startPosition.row + 1} (depth: ${nextLoopDepth})`;
+        if (type === 'for_statement' && nextLoopVariable) {
+          loopMsg += ` tracking variable '${nextLoopVariable}'`;
+        }
+        details.push(loopMsg);
       }
       
       if (cursor.gotoFirstChild()) {
-        walk(cursor, nextLoopDepth, nextFunctionName);
+        walk(cursor, nextLoopDepth, nextFunctionName, nextLoopVariable);
         cursor.gotoParent();
       }
     } while (cursor.gotoNextSibling());
   }
   
-  walk(cursor, 0, null);
+  walk(cursor, 0, null, null);
   
   let timeComplexity = 'O(1)';
   if (maxLoopDepth === 1) {
