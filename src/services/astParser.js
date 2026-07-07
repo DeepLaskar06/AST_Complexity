@@ -39,6 +39,40 @@ function extractLoopVariable(node) {
 }
 
 function analyzeComplexity(rootNode) {
+  const loopMacros = new Set();
+  const spaceMacros = new Set();
+  
+  const preprocCursor = rootNode.walk();
+  function pass1(cursor) {
+    do {
+      const type = cursor.nodeType;
+      const node = cursor.currentNode;
+      
+      if (type === 'preproc_def' || type === 'preproc_function_def') {
+        const nameNode = node.childForFieldName('name');
+        const valueNode = node.childForFieldName('value');
+        
+        if (nameNode && valueNode) {
+          const name = nameNode.text;
+          const value = valueNode.text;
+          
+          if (/(?:for|while)\s*\(/.test(value) || value.includes('for ') || value.includes('while ')) {
+            loopMacros.add(name);
+          }
+          if (value.includes('vector') || value.includes('map') || value.includes('set')) {
+            spaceMacros.add(name);
+          }
+        }
+      }
+      
+      if (cursor.gotoFirstChild()) {
+        pass1(cursor);
+        cursor.gotoParent();
+      }
+    } while (cursor.gotoNextSibling());
+  }
+  pass1(preprocCursor);
+
   let maxLinear = 0;
   let maxLog = 0;
   let isRecursive = false;
@@ -66,6 +100,13 @@ function analyzeComplexity(rootNode) {
         }
       }
       
+      let isLoop = false;
+      let isLogLoop = false;
+      let isSqrtLoop = false;
+      let isMacroLoop = false;
+      let loopVar = null;
+      let macroBaseName = null;
+
       if (type === 'call_expression') {
         const functionNode = node.childForFieldName('function');
         let baseName = null;
@@ -78,7 +119,11 @@ function analyzeComplexity(rootNode) {
           }
         }
         
-        if (baseName && stlHeuristics[baseName]) {
+        if (baseName && loopMacros.has(baseName)) {
+          isLoop = true;
+          isMacroLoop = true;
+          macroBaseName = baseName;
+        } else if (baseName && stlHeuristics[baseName]) {
           const h = stlHeuristics[baseName];
           if (h === 'O(N log N)') {
             nextLinear++;
@@ -111,15 +156,18 @@ function analyzeComplexity(rootNode) {
       }
       
       if (type === 'declaration' || type === 'variable_declaration') {
-        if (node.text.includes('vector') || node.text.includes('[')) {
+        const text = node.text;
+        if (text.includes('vector') || text.includes('[')) {
           hasDynamicSpace = true;
+        } else {
+          for (const sm of spaceMacros) {
+            const regex = new RegExp(`\\b${sm}\\b`);
+            if (regex.test(text)) {
+              hasDynamicSpace = true;
+            }
+          }
         }
       }
-
-      let isLoop = false;
-      let isLogLoop = false;
-      let isSqrtLoop = false;
-      let loopVar = null;
 
       if (type === 'for_statement') {
         isLoop = true;
@@ -178,7 +226,9 @@ function analyzeComplexity(rootNode) {
         }
         
         let loopMsg = `Found ${isLogLoop ? 'O(log N)' : (isSqrtLoop ? 'O(sqrt N)' : 'O(N)')} loop at line ${cursor.startPosition.row + 1}`;
-        if (type === 'for_statement' && loopVar) {
+        if (isMacroLoop) {
+          loopMsg = `Found O(N) macro loop '${macroBaseName}' at line ${cursor.startPosition.row + 1}`;
+        } else if (type === 'for_statement' && loopVar) {
           loopMsg += ` tracking variable '${loopVar}'`;
         }
         details.push(loopMsg);
