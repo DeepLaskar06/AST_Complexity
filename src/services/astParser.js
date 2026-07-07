@@ -38,19 +38,21 @@ function extractLoopVariable(node) {
 }
 
 function analyzeComplexity(rootNode) {
-  let maxLoopDepth = 0;
+  let maxLinear = 0;
+  let maxLog = 0;
   let isRecursive = false;
   let hasDynamicSpace = false;
   const details = [];
   
   const cursor = rootNode.walk();
   
-  function walk(cursor, currentLoopDepth, currentFunctionName, currentLoopVariable) {
+  function walk(cursor, currentLinear, currentLog, currentFunctionName, currentLoopVariable) {
     do {
       const type = cursor.nodeType;
       const node = cursor.currentNode;
       
-      let nextLoopDepth = currentLoopDepth;
+      let nextLinear = currentLinear;
+      let nextLog = currentLog;
       let nextFunctionName = currentFunctionName;
       let nextLoopVariable = currentLoopVariable;
       
@@ -80,22 +82,42 @@ function analyzeComplexity(rootNode) {
         }
       }
 
+      let isLoop = false;
+      let isLogLoop = false;
+
       if (type === 'for_statement') {
+        isLoop = true;
         const loopVar = extractLoopVariable(node);
         if (loopVar) {
           nextLoopVariable = loopVar;
         }
+        
+        const update = node.childForFieldName('update');
+        if (update && nextLoopVariable) {
+          const updateText = update.text;
+          const regex1 = new RegExp(`\\b${nextLoopVariable}\\s*(\\*=|/=|<<=|>>=)`);
+          const regex2 = new RegExp(`\\b${nextLoopVariable}\\s*=\\s*\\b${nextLoopVariable}\\s*(\\*|/|<<|>>)`);
+          if (regex1.test(updateText) || regex2.test(updateText)) {
+            isLogLoop = true;
+          }
+        }
+      } else if (type === 'while_statement' || type === 'do_statement') {
+        isLoop = true;
       }
-
-      const isLoop = (type === 'for_statement' || type === 'while_statement' || type === 'do_statement');
       
       if (isLoop) {
-        nextLoopDepth++;
-        if (nextLoopDepth > maxLoopDepth) {
-          maxLoopDepth = nextLoopDepth;
+        if (isLogLoop) {
+          nextLog++;
+        } else {
+          nextLinear++;
         }
         
-        let loopMsg = `Found loop at line ${cursor.startPosition.row + 1} (depth: ${nextLoopDepth})`;
+        if (nextLinear > maxLinear || (nextLinear === maxLinear && nextLog > maxLog)) {
+          maxLinear = nextLinear;
+          maxLog = nextLog;
+        }
+        
+        let loopMsg = `Found ${isLogLoop ? 'O(log N)' : 'O(N)'} loop at line ${cursor.startPosition.row + 1}`;
         if (type === 'for_statement' && nextLoopVariable) {
           loopMsg += ` tracking variable '${nextLoopVariable}'`;
         }
@@ -103,21 +125,21 @@ function analyzeComplexity(rootNode) {
       }
       
       if (cursor.gotoFirstChild()) {
-        walk(cursor, nextLoopDepth, nextFunctionName, nextLoopVariable);
+        walk(cursor, nextLinear, nextLog, nextFunctionName, nextLoopVariable);
         cursor.gotoParent();
       }
     } while (cursor.gotoNextSibling());
   }
   
-  walk(cursor, 0, null, null);
+  walk(cursor, 0, 0, null, null);
   
   let timeComplexity = 'O(1)';
-  if (maxLoopDepth === 1) {
-    timeComplexity = 'O(N)';
-  } else if (maxLoopDepth === 2) {
-    timeComplexity = 'O(N^2)';
-  } else if (maxLoopDepth >= 3) {
-    timeComplexity = `O(N^${maxLoopDepth})`;
+  if (maxLinear === 0 && maxLog > 0) {
+    timeComplexity = maxLog === 1 ? 'O(log N)' : `O(log^${maxLog} N)`;
+  } else if (maxLinear > 0) {
+    const linPart = maxLinear === 1 ? 'N' : `N^${maxLinear}`;
+    const logPart = maxLog === 0 ? '' : (maxLog === 1 ? ' log N' : ` log^${maxLog} N`);
+    timeComplexity = `O(${linPart}${logPart})`;
   }
   
   let spaceComplexity = 'O(1)';
