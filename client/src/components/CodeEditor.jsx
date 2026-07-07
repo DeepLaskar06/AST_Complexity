@@ -49,7 +49,7 @@ const CodeEditor = ({ code, onChange, onSubmit, isLoading, highlightLines = [] }
         <button
           onClick={onSubmit}
           disabled={isLoading}
-          className="px-6 py-2.5 bg-gradient-to-r from-blue-500 to-blue-700 hover:scale-105 transition-transform duration-200 text-white font-semibold rounded-lg shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
         >
           {isLoading ? (
             <>

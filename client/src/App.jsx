@@ -6,19 +6,24 @@ import History from './pages/History';
 function App() {
   return (
     <Router>
-      <div className="min-h-screen bg-slate-50 text-slate-800 font-sans">
-        <Toaster position="top-right" />
+      <div className="min-h-screen w-full bg-gray-900 text-gray-100 flex flex-col font-sans">
+        <Toaster position="top-right" toastOptions={{
+          style: {
+            background: '#374151',
+            color: '#f3f4f6',
+          }
+        }} />
         {/* Navigation Bar */}
-        <nav className="bg-white/70 backdrop-blur-md shadow-sm sticky top-0 z-50 border-b border-slate-200">
+        <nav className="bg-gray-900/80 backdrop-blur-md shadow-sm sticky top-0 z-50 border-b border-gray-800">
           <div className="max-w-[1400px] mx-auto px-6 py-4 flex justify-between items-center">
-            <h1 className="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">
+            <h1 className="text-4xl font-extrabold text-center py-8 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">
               AST Complexity
             </h1>
             <div className="space-x-6">
-              <Link to="/" className="text-slate-600 hover:text-indigo-600 font-semibold transition-colors duration-200">
+              <Link to="/" className="text-gray-300 hover:text-cyan-400 font-semibold transition-colors duration-200">
                 Editor
               </Link>
-              <Link to="/history" className="text-slate-600 hover:text-indigo-600 font-semibold transition-colors duration-200">
+              <Link to="/history" className="text-gray-300 hover:text-cyan-400 font-semibold transition-colors duration-200">
                 History
               </Link>
             </div>
@@ -26,7 +31,7 @@ function App() {
         </nav>
 
         {/* Main Content Area */}
-        <main className="max-w-[1400px] mx-auto p-6 mt-4">
+        <main className="max-w-[1400px] mx-auto w-full flex-grow p-6 mt-4">
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/history" element={<History />} />
