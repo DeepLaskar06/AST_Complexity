@@ -264,6 +264,242 @@ function detectDivideAndConquer(functionNode) {
   return null;
 }
 
+function detectBinarySearch(whileNode) {
+  if (!whileNode || whileNode.type !== 'while_statement') return false;
+  
+  const condition = whileNode.childForFieldName('condition');
+  if (!condition) return false;
+  
+  const matchCond = condition.text.match(/([A-Za-z0-9_]+)\s*[<>=!]+\s*([A-Za-z0-9_]+)/);
+  if (!matchCond) return false;
+  
+  const leftVar = matchCond[1];
+  const rightVar = matchCond[2];
+  
+  const body = whileNode.childForFieldName('body');
+  if (!body) return false;
+  
+  let hasMid = false;
+  let midVar = null;
+  let hasUpdate = false;
+  
+  const cursor = body.walk();
+  function checkBody(c) {
+    do {
+      const node = c.currentNode;
+      const text = node.text;
+      
+      if (text.includes('/ 2') || text.includes('/2') || text.includes('>> 1') || text.includes('>>1')) {
+         if (text.includes(leftVar) || text.includes(rightVar)) {
+           const matchMid = text.match(/(?:int|long long|auto)?\s*([A-Za-z0-9_]+)\s*=\s*.+/);
+           if (matchMid) {
+             hasMid = true;
+             midVar = matchMid[1];
+           }
+         }
+      }
+      
+      if (hasMid && midVar) {
+         const regexLeft = new RegExp(`\\b${leftVar}\\s*=\\s*\\b${midVar}\\b`);
+         const regexRight = new RegExp(`\\b${rightVar}\\s*=\\s*\\b${midVar}\\b`);
+         const regexLeft2 = new RegExp(`\\b${leftVar}\\s*=\\s*\\b${midVar}\\b\\s*[+-]`);
+         const regexRight2 = new RegExp(`\\b${rightVar}\\s*=\\s*\\b${midVar}\\b\\s*[+-]`);
+         
+         if (regexLeft.test(text) || regexRight.test(text) || regexLeft2.test(text) || regexRight2.test(text)) {
+           hasUpdate = true;
+         }
+      }
+      
+      if (c.gotoFirstChild()) {
+        checkBody(c);
+        c.gotoParent();
+      }
+    } while (c.gotoNextSibling());
+  }
+  
+  checkBody(cursor);
+  return hasMid && hasUpdate;
+}
+
+function detectMemoization(functionNode) {
+  if (!functionNode || functionNode.type !== 'function_definition') return null;
+  
+  const body = functionNode.childForFieldName('body');
+  if (!body) return null;
+  
+  let cacheVar = null;
+  let dimension = 1;
+  let hasEarlyReturn = false;
+  let hasCacheWrite = false;
+  
+  const cursor = body.walk();
+  
+  function checkBody(c) {
+    do {
+      const node = c.currentNode;
+      const text = node.text;
+      
+      if (node.type === 'if_statement') {
+        const cond = node.childForFieldName('condition');
+        const cons = node.childForFieldName('consequence');
+        
+        if (cond && cons) {
+          const condText = cond.text;
+          const consText = cons.text;
+          
+          if (condText.includes('!=') || condText.includes('==') || condText.includes('>')) {
+            const brackets = (condText.match(/\[/g) || []).length;
+            if (brackets > 0 && consText.includes('return')) {
+              hasEarlyReturn = true;
+              dimension = brackets;
+              const memoMatch = condText.match(/([A-Za-z0-9_]+)\[/);
+              if (memoMatch) {
+                cacheVar = memoMatch[1];
+              }
+            }
+          }
+        }
+      }
+      
+      if (cacheVar && (node.type === 'expression_statement' || node.type === 'return_statement')) {
+        const regexWrite = new RegExp(`\\b${cacheVar}\\s*\\[.*\\]\\s*=`);
+        if (regexWrite.test(text)) {
+          hasCacheWrite = true;
+        }
+        
+        const regexRetWrite = new RegExp(`return\\s+${cacheVar}\\s*\\[.*\\]\\s*=`);
+        if (regexRetWrite.test(text)) {
+          hasCacheWrite = true;
+        }
+      }
+      
+      if (c.gotoFirstChild()) {
+        checkBody(c);
+        c.gotoParent();
+      }
+    } while (c.gotoNextSibling());
+  }
+  
+  checkBody(cursor);
+  
+  if (hasEarlyReturn && hasCacheWrite) {
+    const dimStr = dimension === 1 ? '1D' : (dimension === 2 ? '2D' : `${dimension}D`);
+    const compStr = dimension === 1 ? 'O(N)' : `O(N^${dimension})`;
+    return {
+      time: compStr,
+      space: compStr,
+      dimension: dimension,
+      details: `Detected Dynamic Programming (Memoization Cache: ${dimStr} State Space)`
+    };
+  }
+  return null;
+}
+
+function cleanVectorArg(argStr) {
+  if (!argStr) return 'N';
+  let cleaned = argStr.replace(/\s*[+-]\s*[0-9]+/g, '');
+  cleaned = cleaned.trim().toUpperCase();
+  if (/^[0-9]+$/.test(cleaned) || cleaned === '') return 'N';
+  return cleaned;
+}
+
+function detectVectorSpaceComplexity(declarationNode, spaceMacros) {
+  if (!declarationNode) return null;
+  
+  const text = declarationNode.text;
+  
+  let is2D = false;
+  if (text.includes('vector') && (text.includes('vector<vector') || text.match(/vector\s*<\s*vector/))) {
+    is2D = true;
+  } else {
+    for (const sm of spaceMacros) {
+       if (sm.toLowerCase().includes('vv') && new RegExp(`\\b${sm}\\b`).test(text)) {
+         is2D = true;
+       }
+    }
+  }
+  
+  if (!is2D) return null;
+  
+  const argsMatch = text.match(/\(\s*([^,]+)\s*,\s*(.+)\)/);
+  if (argsMatch) {
+    const outerArg = argsMatch[1];
+    const innerPart = argsMatch[2];
+    
+    const innerMatch = innerPart.match(/\(\s*([^,]+)\s*,(?:.+)\)/);
+    
+    let outerClean = cleanVectorArg(outerArg);
+    let innerClean = innerMatch ? cleanVectorArg(innerMatch[1]) : outerClean; 
+    
+    if (outerClean === innerClean) {
+      return `O(${outerClean}^2)`;
+    } else {
+      return `O(${outerClean} * ${innerClean})`;
+    }
+  }
+  
+  return null;
+}
+
+function detectBoundedSpace(loopNode) {
+  if (!loopNode || (loopNode.type !== 'for_statement' && loopNode.type !== 'while_statement' && loopNode.type !== 'for_range_loop')) return null;
+  
+  const body = loopNode.childForFieldName('body');
+  if (!body) return null;
+  
+  let pushedVar = null;
+  let boundVar = null;
+  let hasSizeCheck = false;
+  let hasPop = false;
+  
+  const cursor = body.walk();
+  function checkBody(c) {
+    do {
+      const node = c.currentNode;
+      const text = node.text;
+      
+      if (node.type === 'call_expression') {
+         const m = text.match(/([A-Za-z0-9_]+)\.(?:push|push_back|insert)\(/);
+         if (m) pushedVar = m[1];
+      }
+      
+      if (node.type === 'if_statement' && pushedVar) {
+         const cond = node.childForFieldName('condition');
+         const cons = node.childForFieldName('consequence');
+         
+         if (cond && cons) {
+            const condText = cond.text;
+            const sizeRegex = new RegExp(`\\b${pushedVar}\\.size\\(\\)\\s*(?:>|>=|==)\\s*([A-Za-z0-9_]+)`);
+            const sizeMatch = condText.match(sizeRegex);
+            
+            if (sizeMatch) {
+               hasSizeCheck = true;
+               boundVar = sizeMatch[1].toUpperCase();
+               
+               const consText = cons.text;
+               const popRegex = new RegExp(`\\b${pushedVar}\\.(?:pop|pop_front|erase)\\(\\)?`);
+               if (popRegex.test(consText)) {
+                  hasPop = true;
+               }
+            }
+         }
+      }
+      
+      if (c.gotoFirstChild()) {
+        checkBody(c);
+        c.gotoParent();
+      }
+    } while (c.gotoNextSibling());
+  }
+  
+  checkBody(cursor);
+  
+  if (hasSizeCheck && hasPop && boundVar) {
+    return `O(${boundVar})`;
+  }
+  return null;
+}
+
 function formatComplexity(rawString, details) {
   let formatted = rawString.toUpperCase().replace(/O\(/i, 'O(').replace(/LOG/g, 'log').replace(/SQRT/g, 'sqrt');
   
@@ -340,12 +576,18 @@ function analyzeComplexity(rootNode) {
   let maxScore = 0;
   let isRecursive = false;
   let hasDynamicSpace = false;
+  let dynamicSpaceStr = 'O(N)';
   let isNLogLogN = false;
   let hasGraphTraversal = false;
   let hasDivideAndConquer = false;
+  let hasMemoization = false;
+  let memoDim = 1;
   let hasDijkstra = false;
+  let hasBoundedSpace = false;
+  let boundedSpaceStr = null;
   const details = [];
-  const pqVariables = new Set();
+  
+  const containerTypes = new Map();
   
   const cursor = rootNode.walk();
   
@@ -366,7 +608,25 @@ function analyzeComplexity(rootNode) {
         const match = node.text.match(/(\w+)\s*\(/);
         if (match) nextFunctionName = match[1];
         
-        if (detectRecursiveDFS(node)) {
+        const memoResult = detectMemoization(node);
+        if (memoResult) {
+          hasMemoization = true;
+          memoDim = memoResult.dimension;
+          skipChildren = true;
+          
+          for (let i = 0; i < memoDim; i++) {
+            nextLinearBounds.push('N');
+          }
+          
+          const currentScore = nextLinearBounds.length + nextSqrtBounds.length * 0.5 + nextLogBounds.length * 0.01;
+          if (currentScore > maxScore) {
+            maxScore = currentScore;
+            maxLinearBounds = [...nextLinearBounds];
+            maxLogBounds = [...nextLogBounds];
+            maxSqrtBounds = [...nextSqrtBounds];
+          }
+          details.push(`${memoResult.details} at line ${cursor.startPosition.row + 1}`);
+        } else if (detectRecursiveDFS(node)) {
           hasGraphTraversal = true;
           skipChildren = true;
           
@@ -416,13 +676,52 @@ function analyzeComplexity(rootNode) {
       if (type === 'call_expression') {
         const functionNode = node.childForFieldName('function');
         let baseName = null;
+        let objName = null;
+        let methodName = null;
+        
         if (functionNode) {
           if (functionNode.type === 'scoped_identifier') {
             const nameNode = functionNode.childForFieldName('name');
             if (nameNode) baseName = nameNode.text;
           } else if (functionNode.type === 'identifier') {
             baseName = functionNode.text;
+          } else if (functionNode.type === 'field_expression') {
+            const objNode = functionNode.childForFieldName('argument');
+            const fieldNode = functionNode.childForFieldName('field');
+            if (objNode) objName = objNode.text;
+            if (fieldNode) methodName = fieldNode.text;
           }
+        }
+        
+        if (objName && methodName && containerTypes.has(objName)) {
+           const cType = containerTypes.get(objName);
+           if (['set', 'multiset', 'map'].includes(cType)) {
+              if (['insert', 'erase', 'find', 'count', 'lower_bound', 'upper_bound'].includes(methodName)) {
+                 nextLogBounds.push('N');
+                 details.push(`Found logarithmic operation '${methodName}' on ${cType} '${objName}' at line ${cursor.startPosition.row + 1}`);
+                 
+                 const currentScore = nextLinearBounds.length + nextSqrtBounds.length * 0.5 + nextLogBounds.length * 0.01;
+                 if (currentScore > maxScore) {
+                   maxScore = currentScore;
+                   maxLinearBounds = [...nextLinearBounds];
+                   maxLogBounds = [...nextLogBounds];
+                   maxSqrtBounds = [...nextSqrtBounds];
+                 }
+              }
+           } else if (cType === 'priority_queue') {
+              if (['push', 'pop'].includes(methodName)) {
+                 nextLogBounds.push('N');
+                 details.push(`Found logarithmic operation '${methodName}' on priority_queue '${objName}' at line ${cursor.startPosition.row + 1}`);
+                 
+                 const currentScore = nextLinearBounds.length + nextSqrtBounds.length * 0.5 + nextLogBounds.length * 0.01;
+                 if (currentScore > maxScore) {
+                   maxScore = currentScore;
+                   maxLinearBounds = [...nextLinearBounds];
+                   maxLogBounds = [...nextLogBounds];
+                   maxSqrtBounds = [...nextSqrtBounds];
+                 }
+              }
+           }
         }
         
         if (baseName && loopMacros.has(baseName)) {
@@ -464,9 +763,27 @@ function analyzeComplexity(rootNode) {
         const text = node.text;
         if (text.includes('priority_queue')) {
            const match = text.match(/priority_queue\s*<.*>\s*([A-Za-z0-9_]+)/);
-           if (match) pqVariables.add(match[1]);
+           if (match) {
+              containerTypes.set(match[1], 'priority_queue');
+              hasDynamicSpace = true;
+           }
         }
-        if (text.includes('vector') || text.includes('[')) {
+        
+        const setMatch = text.match(/\b(set|multiset|map|unordered_map|unordered_set)\b/);
+        if (setMatch) {
+           const typeName = setMatch[1];
+           const varMatch = text.match(/(?:set|multiset|map|unordered_map|unordered_set)\s*<.*>\s*([A-Za-z0-9_]+)/);
+           if (varMatch) {
+              containerTypes.set(varMatch[1], typeName);
+              hasDynamicSpace = true;
+           }
+        }
+        
+        const vectorSpace = detectVectorSpaceComplexity(node, spaceMacros);
+        if (vectorSpace) {
+           hasDynamicSpace = true;
+           dynamicSpaceStr = vectorSpace;
+        } else if (text.includes('vector') || text.includes('[')) {
           hasDynamicSpace = true;
         } else {
           for (const sm of spaceMacros) {
@@ -476,24 +793,21 @@ function analyzeComplexity(rootNode) {
         }
       }
 
+      if (type === 'for_statement' || type === 'for_range_loop') {
+        const boundedSpace = detectBoundedSpace(node);
+        if (boundedSpace) {
+           hasBoundedSpace = true;
+           boundedSpaceStr = boundedSpace;
+           details.push(`Detected dynamically bounded space (Size Capped at ${boundedSpace.match(/\((.+)\)/)[1]}) at line ${cursor.startPosition.row + 1}`);
+        }
+      }
+
       if (type === 'for_statement') {
         isLoop = true;
         loopVar = extractLoopVariable(node);
         if (loopVar) {
           nextLoopVars = [...activeLoopVars, loopVar];
           currentLoopVariable = loopVar;
-        }
-        
-        const body = node.childForFieldName('body');
-        if (body) {
-          const bodyText = body.text;
-          for (const pq of pqVariables) {
-            if (bodyText.includes(`${pq}.push(`)) {
-              isTopK = true;
-              const sizeMatch = bodyText.match(new RegExp(`${pq}\\.size\\(\\)\\s*[><=!]+\\s*([A-Za-z0-9_]+)`));
-              if (sizeMatch) topKBound = sizeMatch[1].toUpperCase();
-            }
-          }
         }
         
         const update = node.childForFieldName('update');
@@ -525,9 +839,23 @@ function analyzeComplexity(rootNode) {
         }
       } else if (type === 'while_statement' || type === 'do_statement') {
         let graphType = null;
+        let isBinSearch = false;
+        
         if (type === 'while_statement') {
-           graphType = detectGraphTraversal(node, pqVariables);
+           const boundedSpace = detectBoundedSpace(node);
+           if (boundedSpace) {
+              hasBoundedSpace = true;
+              boundedSpaceStr = boundedSpace;
+              details.push(`Detected dynamically bounded space (Size Capped at ${boundedSpace.match(/\((.+)\)/)[1]}) at line ${cursor.startPosition.row + 1}`);
+           }
+           
+           const pqKeys = Array.from(containerTypes.entries()).filter(e => e[1] === 'priority_queue').map(e => e[0]);
+           graphType = detectGraphTraversal(node, pqKeys);
+           if (!graphType) {
+              isBinSearch = detectBinarySearch(node);
+           }
         }
+        
         if (graphType) {
           hasGraphTraversal = true;
           skipChildren = true;
@@ -549,6 +877,19 @@ function analyzeComplexity(rootNode) {
           } else {
             details.push(`Detected standard Graph Traversal (BFS/DFS) at line ${cursor.startPosition.row + 1}`);
           }
+        } else if (isBinSearch) {
+          skipChildren = true;
+          nextLogBounds.push('N');
+          
+          const currentScore = nextLinearBounds.length + nextSqrtBounds.length * 0.5 + nextLogBounds.length * 0.01;
+          if (currentScore > maxScore) {
+            maxScore = currentScore;
+            maxLinearBounds = [...nextLinearBounds];
+            maxLogBounds = [...nextLogBounds];
+            maxSqrtBounds = [...nextSqrtBounds];
+          }
+          
+          details.push(`Detected manual Binary Search (Search Space Halving) at line ${cursor.startPosition.row + 1}`);
         } else {
           isLoop = true;
         }
@@ -566,10 +907,6 @@ function analyzeComplexity(rootNode) {
           nextSqrtBounds.push(bound);
         } else {
           nextLinearBounds.push(bound);
-          if (isTopK) {
-             nextLogBounds.push(topKBound);
-             details.push(`Detected Top-K Priority Queue push (bound by ${topKBound}) inside loop at line ${cursor.startPosition.row + 1}`);
-          }
         }
         
         const currentScore = nextLinearBounds.length + nextSqrtBounds.length * 0.5 + nextLogBounds.length * 0.01;
@@ -642,18 +979,27 @@ function analyzeComplexity(rootNode) {
   }
   
   let spaceComplexity = 'O(1)';
-  if (hasGraphTraversal) {
+  if (hasBoundedSpace) {
+    spaceComplexity = boundedSpaceStr;
+  } else if (hasGraphTraversal) {
     spaceComplexity = 'O(V)';
     details.push('Dynamic space allocation detected (Graph queue/visited array: O(V))');
+  } else if (hasMemoization) {
+    spaceComplexity = memoDim === 1 ? 'O(N)' : `O(N^${memoDim})`;
+    details.push(`Dynamic space allocation detected (Memoization Cache table: ${spaceComplexity})`);
   } else if (hasDivideAndConquer) {
     spaceComplexity = 'O(N)';
     details.push('Dynamic space allocation detected (Master Theorem recursive memory: O(N))');
   } else if (hasDynamicSpace) {
-    spaceComplexity = 'O(N)';
-    details.push('Dynamic space allocation detected (e.g., arrays, vectors, or new[])');
+    spaceComplexity = dynamicSpaceStr;
+    if (dynamicSpaceStr !== 'O(N)') {
+       details.push(`Dynamic 2D space allocation detected: ${dynamicSpaceStr}`);
+    } else {
+       details.push('Dynamic space allocation detected (e.g., arrays, vectors, or new[])');
+    }
   }
   
-  if (isRecursive && !hasGraphTraversal && !hasDivideAndConquer) {
+  if (isRecursive && !hasGraphTraversal && !hasDivideAndConquer && !hasMemoization) {
     details.push('Recursive call detected');
   }
   
