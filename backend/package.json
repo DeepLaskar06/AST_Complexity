@@ -1,0 +1,21 @@
+{
+  "name": "ast-complexity",
+  "version": "1.0.0",
+  "description": "AST Complexity Analyzer API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^4.19.2",
+    "mongoose": "^9.7.3",
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-cpp": "^0.23.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

@@ -1,21 +1,15 @@
 {
-  "name": "ast-complexity",
+  "name": "ast-complexity-monorepo",
   "version": "1.0.0",
-  "description": "AST Complexity Analyzer API",
-  "main": "server.js",
+  "description": "Monorepo for AST Complexity Analyzer",
+  "private": true,
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
-  },
-  "dependencies": {
-    "cors": "^2.8.5",
-    "dotenv": "^17.4.2",
-    "express": "^4.19.2",
-    "mongoose": "^9.7.3",
-    "tree-sitter": "^0.21.1",
-    "tree-sitter-cpp": "^0.23.4"
+    "install-all": "npm install --prefix backend && npm install --prefix frontend",
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\""
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "concurrently": "^10.0.3"
   }
 }

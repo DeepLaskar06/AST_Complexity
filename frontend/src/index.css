@@ -1,0 +1,28 @@
+@import "tailwindcss";
+@plugin "daisyui";
+
+/* Force fallback colors in case Tailwind utility classes are being stripped */
+body {
+  background-color: #111827 !important;
+  color: #d1d5db !important;
+}
+
+h1, h2, h3, h4, th, td, p, span, div {
+  color: #d1d5db;
+}
+
+/* Explicitly bind the exact Tailwind hex codes as !important overrides */
+.text-gray-100 { color: #f3f4f6 !important; }
+.text-gray-300 { color: #d1d5db !important; }
+.text-gray-400 { color: #9ca3af !important; }
+.text-slate-800 { color: #d1d5db !important; }
+
+/* Modal text elements */
+.text-white { color: #ffffff !important; }
+.text-cyan-400 { color: #22d3ee !important; }
+
+.slow-code-highlight {
+  background-color: rgba(239, 68, 68, 0.3) !important;
+  display: block;
+  width: 100%;
+}

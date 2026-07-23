@@ -538,6 +538,7 @@ function formatComplexity(rawString, details) {
 function analyzeComplexity(rootNode) {
   const loopMacros = new Set();
   const spaceMacros = new Set();
+  const rangeMacros = new Set();
   
   const preprocCursor = rootNode.walk();
   function pass1(cursor) {
@@ -558,6 +559,9 @@ function analyzeComplexity(rootNode) {
           }
           if (value.includes('vector') || value.includes('map') || value.includes('set')) {
             spaceMacros.add(name);
+          }
+          if ((name === 'all' || name === 'rall') && value.includes('.begin()') && value.includes('.end()')) {
+            rangeMacros.add(name);
           }
         }
       }
@@ -730,13 +734,41 @@ function analyzeComplexity(rootNode) {
           macroBaseName = baseName;
         } else if (baseName && stlHeuristics[baseName]) {
           const h = stlHeuristics[baseName];
+          let boundStr = 'N';
+          let hasRangeMacro = false;
+          let rangeVar = null;
+          let macroName = null;
+
+          const argsNode = node.childForFieldName('arguments');
+          if (argsNode) {
+            for (let i = 0; i < argsNode.childCount; i++) {
+              const argChild = argsNode.child(i);
+              if (argChild.type === 'call_expression') {
+                const mFunc = argChild.childForFieldName('function');
+                if (mFunc && rangeMacros.has(mFunc.text)) {
+                  const mArgs = argChild.childForFieldName('arguments');
+                  if (mArgs && mArgs.childCount > 1) {
+                    const varNode = mArgs.child(1);
+                    if (varNode) {
+                      boundStr = varNode.text.toUpperCase();
+                      hasRangeMacro = true;
+                      rangeVar = varNode.text;
+                      macroName = mFunc.text;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+          }
+
           if (h === 'O(N log N)') {
-            nextLinearBounds.push('N');
-            nextLogBounds.push('N');
+            nextLinearBounds.push(boundStr);
+            nextLogBounds.push(boundStr);
           } else if (h === 'O(log N)') {
-            nextLogBounds.push('N');
+            nextLogBounds.push(boundStr);
           } else if (h === 'O(N)') {
-            nextLinearBounds.push('N');
+            nextLinearBounds.push(boundStr);
           }
           
           const currentScore = nextLinearBounds.length + nextSqrtBounds.length * 0.5 + nextLogBounds.length * 0.01;
@@ -746,7 +778,11 @@ function analyzeComplexity(rootNode) {
             maxLogBounds = [...nextLogBounds];
             maxSqrtBounds = [...nextSqrtBounds];
           }
-          details.push(`Found STL '${baseName}' call at line ${cursor.startPosition.row + 1} (${h})`);
+          if (hasRangeMacro) {
+             details.push(`Expanded range macro ${macroName}() operating on container ${rangeVar}`);
+          } else {
+             details.push(`Found STL '${baseName}' call at line ${cursor.startPosition.row + 1} (${h})`);
+          }
         }
 
         const match = node.text.match(/^([\w:]+)\s*\(/);

@@ -6,24 +6,24 @@ import History from './pages/History';
 function App() {
   return (
     <Router>
-      <div className="min-h-screen w-full bg-gray-900 text-gray-100 flex flex-col font-sans">
+      <div className="min-h-screen w-full bg-base-100 text-base-content flex flex-col font-sans">
         <Toaster position="top-right" toastOptions={{
           style: {
-            background: '#374151',
-            color: '#f3f4f6',
+            background: '#1b2e2b',
+            color: '#1eb854',
           }
         }} />
         {/* Navigation Bar */}
-        <nav className="bg-gray-900/80 backdrop-blur-md shadow-sm sticky top-0 z-50 border-b border-gray-800">
-          <div className="max-w-[1400px] mx-auto px-6 py-4 flex justify-between items-center">
-            <h1 className="text-4xl font-extrabold text-center py-8 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">
+        <nav className="navbar bg-base-200/80 backdrop-blur-md shadow-sm sticky top-0 z-50 border-b border-base-300 px-6">
+          <div className="max-w-[1400px] mx-auto w-full flex justify-between items-center">
+            <h1 className="text-3xl font-extrabold text-primary py-4">
               AST Complexity
             </h1>
-            <div className="space-x-6">
-              <Link to="/" className="text-gray-300 hover:text-cyan-400 font-semibold transition-colors duration-200">
+            <div className="flex space-x-3">
+              <Link to="/" className="btn btn-ghost font-semibold">
                 Editor
               </Link>
-              <Link to="/history" className="text-gray-300 hover:text-cyan-400 font-semibold transition-colors duration-200">
+              <Link to="/history" className="btn btn-ghost font-semibold">
                 History
               </Link>
             </div>

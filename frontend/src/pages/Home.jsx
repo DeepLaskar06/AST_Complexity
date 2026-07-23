@@ -53,7 +53,7 @@ const Home = () => {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       <div>
-        <h2 className="text-xl font-bold mb-4 text-slate-800">Code Editor</h2>
+        <h2 className="text-xl font-bold mb-4 text-gray-300">Code Editor</h2>
         <CodeEditor 
           code={code} 
           onChange={setCode} 
